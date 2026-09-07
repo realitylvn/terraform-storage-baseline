@@ -5,9 +5,14 @@ secure-by-default Azure storage account, plus an example root module that
 consumes it. Portfolio Tier 2, first non-Bicep IaC project. Design per
 `docs/internal/specs/2026-09-07-terraform-storage-baseline-design.md`.
 
-**Completed milestone:** SHIPPED 2026-09-07 — Checkpoints 1-7 plus publication. **Nothing deployed; no Azure
-resource created or changed.** Validated against the provider schema, a mocked
-provider, and a real `terraform plan`.
+**Completed milestone:** SHIPPED 2026-09-07 — Checkpoints 1-7 plus publication.
+
+The full apply/verify/destroy cycle **was** run against the live subscription
+(Checkpoints 5-6): 7 resources created, every control verified with `az`
+independently of Terraform state and tested for enforcement rather than
+configuration, cost measured, then destroyed. **Nothing is deployed now and
+nothing is billing** — `az group exists rg-storage-baseline-dev` returns
+`false`. That is the end state by design, not evidence the code was never run.
 
 1. Pre-flight (`cloud-preflight-review`) done. `azure-naming-conventions.md`
    written (was missing), including a Terraform-specific identifier-hazard
