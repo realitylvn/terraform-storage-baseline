@@ -181,12 +181,69 @@ Pin `ref` to a release tag. `main` is not a version.
 
 ## Sample output
 
-<!-- TODO Checkpoint 6: terraform apply output and the az verification
-     commands, with identifiers cropped. -->
+`terraform apply` on the example, against a real subscription:
+
+```
+module.storage.azurerm_storage_account.this: Creation complete after 2m11s
+azurerm_role_assignment.caller_blob_data[0]: Creating...
+module.storage.azurerm_storage_container.this["artifacts"]: Creation complete after 12s
+module.storage.azurerm_storage_container.this["logs"]: Creation complete after 12s
+module.storage.azurerm_storage_management_policy.this[0]: Creation complete after 1s
+azurerm_role_assignment.caller_blob_data[0]: Creation complete after 26s
+
+Apply complete! Resources: 5 added, 0 changed, 1 destroyed.
+
+security_posture = {
+  "allow_nested_items_to_be_public" = false
+  "blob_versioning_enabled"         = true
+  "https_traffic_only_enabled"      = true
+  "infrastructure_encryption_enabled" = true
+  "lifecycle_policy_applied"        = true
+  "min_tls_version"                 = "TLS1_2"
+  "network_default_action"          = "Deny"
+  "public_network_access_enabled"   = true
+  "shared_access_key_enabled"       = false
+}
+```
+
+Confirmed against Azure afterwards, rather than by reading Terraform state:
+
+```
+$ az rest --method get --url ".../stbaselinedev<suffix>?api-version=2023-05-01" \
+    --query "properties.{...}"
+{ "httpsOnly": true, "infraEncryption": true, "minTls": "TLS1_2",
+  "netDefault": "Deny", "publicBlob": false, "sharedKey": false }
+```
+
+Being configured and being enforced are different claims, so each control was
+tested rather than assumed:
+
+| Test | Result |
+|---|---|
+| Entra ID auth from the allowed IP | succeeds — lists `artifacts`, `logs` |
+| Anonymous HTTPS container listing | `409 PublicAccessNotPermitted` |
+| Plaintext HTTP | `400 AccountRequiresHttps` |
+| Shared-key auth on the data plane | `KeyBasedAuthenticationNotPermitted` |
+
+One nuance that is easy to state wrongly. `allowSharedKeyAccess = false` does
+not delete, rotate or hide the account keys — `az storage account keys list`
+still returns them to anyone with `listkeys` on the control plane. What changes
+is that the **data plane refuses them**. The key is retrievable and useless.
+The accurate claim is "shared key authentication is refused", not "the account
+has no keys".
 
 ## Cost
 
-<!-- TODO Checkpoint 6: real measured number. -->
+**Measured, not estimated: under one cent for the full validation cycle.**
+
+The account lived about 12 minutes and recorded **37 transactions and 0 GB
+stored**. At eastus2 Standard Hot LRS retail rates (Azure Retail Prices API,
+2026-09-07) — $0.0184/GB/month stored, $0.065 per 10K write operations — that
+is roughly **$0.0002**, with storage itself at $0.00 because nothing was
+written.
+
+Billed cost data lags 8–24 hours, so this is computed from measured usage
+against published rates rather than read off an invoice.
 
 Design estimate: **~$0.00/month.** An empty StorageV2 LRS account carries no
 hourly meter — storage billing is per-GB-stored and per-transaction, and this
@@ -229,6 +286,28 @@ Checkov against CIS storage benchmarks.
 Checkov is there so the module is not the only thing asserting the module is
 secure — an independent benchmark maintained by people with no stake in this
 repository is a different kind of evidence than a test written by its author.
+
+It earned that place. Its first run reported **12 passed, 9 failed**, and two
+of those failures were real: `CKV_AZURE_35` and `CKV_AZURE_36` flagged an
+account that had *demonstrably* been created with a default-Deny firewall and
+the trusted-services bypass. The control was applied; Checkov could not see it,
+because it lived inside a `dynamic "network_rules"` block and static analysis
+cannot evaluate one. That block existed only to avoid a cosmetic no-op plan
+diff, and it had already made a control unassertable in a test. Hiding the
+network control from a scanner is a bad trade for a tidier diff, so the block
+is now static and always emitted.
+
+The current run is **14 passed, 0 failed, 7 skipped**. The seven are declared
+as inline `checkov:skip=<ID>:<reason>` comments, not suppressed in
+configuration, so they appear in the report as *skipped with a stated reason*
+rather than disappearing: five are the documented design decisions above
+(reachable endpoint behind a Deny firewall, LRS default, no CMK, no private
+endpoint, no queue service) and two are a real gap scoped out on purpose — blob
+read logging needs a Log Analytics workspace this module has no business
+requiring.
+
+A green scan that quietly hides seven disagreements would be worse than a red
+one.
 
 There is no apply job and no Azure credential in CI, by the same standing
 decision described under **Auth**.
