@@ -1,0 +1,106 @@
+# Validation only. There is no apply job and no deploy credential.
+#
+# This repository has no federated deploy identity by deliberate portfolio
+# decision: a standing trust from GitHub's OIDC issuer to a deploy-capable
+# Azure principal, federated to a public repo, is the wrong trade for
+# infrastructure one person applies by hand. `terraform apply` is a workstation
+# operation. See REVIEW.md.
+#
+# Everything below therefore runs without any Azure credential.
+
+name: validate
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  TF_VERSION: "1.16.1"
+
+jobs:
+  terraform:
+    name: fmt, validate, test
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+          terraform_wrapper: false
+
+      # Repository-wide: catches drift in the module, the example and the tests.
+      - name: terraform fmt
+        run: terraform fmt -check -recursive -diff
+
+      - name: terraform init (module)
+        run: terraform init -backend=false -input=false
+        working-directory: modules/secure-storage
+
+      - name: terraform validate (module)
+        run: terraform validate -no-color
+        working-directory: modules/secure-storage
+
+      # The load-bearing step. `validate` only checks syntax and types -- it
+      # would not notice min_tls_version being flipped to TLS1_0, which is the
+      # exact regression this project exists to prevent.
+      #
+      # Runs with no Azure credential because the test files use
+      # `mock_provider "azurerm"`. A real provider block would need one even at
+      # command = plan: azurerm acquires a token when it is configured, not when
+      # a resource is planned. Verified by running against a bogus tenant, which
+      # failed at provider configuration and skipped every run.
+      - name: terraform test (module)
+        run: terraform test -no-color
+        working-directory: modules/secure-storage
+
+      - name: terraform init (example)
+        run: terraform init -backend=false -input=false
+        working-directory: examples/complete
+
+      - name: terraform validate (example)
+        run: terraform validate -no-color
+        working-directory: examples/complete
+
+  tflint:
+    name: tflint
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: terraform-linters/setup-tflint@v4
+        with:
+          tflint_version: latest
+
+      - name: tflint --init
+        run: tflint --init
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: tflint
+        run: tflint --recursive --format compact --minimum-failure-severity=warning
+
+  checkov:
+    name: checkov
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # Independent third-party confirmation against recognised CIS storage
+      # benchmarks. The module should not be the only thing asserting the
+      # module is secure.
+      - uses: bridgecrewio/checkov-action@master
+        with:
+          directory: .
+          framework: terraform
+          quiet: true
+          output_format: cli
+          soft_fail: false

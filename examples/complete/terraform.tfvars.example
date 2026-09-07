@@ -1,0 +1,28 @@
+# Copy to terraform.tfvars and fill in. terraform.tfvars is gitignored because
+# it carries your subscription ID and egress address.
+#
+# Prefer supplying the subscription via the environment instead:
+#   export ARM_SUBSCRIPTION_ID=$(az account show --query id -o tsv)
+
+subscription_id = "11111111-0000-2222-3333-444444444444"
+
+location            = "eastus2"
+resource_group_name = "rg-storage-baseline-dev"
+name_prefix         = "stbaselinedev"
+
+# The module denies network traffic by default. Without your own public egress
+# address here, nothing can reach the blob data plane -- including you.
+# Find it with:  curl -s https://api.ipify.org
+# Azure rejects RFC1918 ranges, and rejects /31 and /32 prefixes -- pass a bare
+# address rather than x.x.x.x/32.
+allowed_ip_ranges = ["203.0.113.10"]
+
+# Requires Owner or User Access Administrator at the scope. Set false if the
+# deploying identity only holds Contributor.
+assign_data_plane_role = true
+
+tags = {
+  portfolio   = "azure-devops-portfolio"
+  project     = "storage-baseline"
+  environment = "dev"
+}

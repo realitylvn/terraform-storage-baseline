@@ -1,0 +1,39 @@
+# --- Terraform state: contains the subscription ID, every resource ID, and
+# --- the storage account's PRIMARY AND SECONDARY ACCESS KEYS in plaintext.
+*.tfstate
+*.tfstate.*
+*.tfstate.backup
+crash.log
+crash.*.log
+
+# Provider binaries, module cache, backend stub
+.terraform/
+.terraform.tfstate.lock.info
+
+# Variable files carry subscription_id. The .example file IS committed.
+*.tfvars
+*.tfvars.json
+!*.tfvars.example
+
+# Terraform plan artifacts (a saved plan embeds resolved variable values)
+*.tfplan
+*.tfplan.*
+
+# Terraform CLI config / credentials
+.terraformrc
+terraform.rc
+
+# --- Portfolio convention: internal working docs and the kickoff brief do not
+# --- ship in the public repo (see workspace CLAUDE.md, "Internal working docs").
+docs/internal/
+prompt.md
+
+# Azure CLI / azd local state
+.azure/
+
+# OS / editor
+Thumbs.db
+Desktop.ini
+.DS_Store
+.vscode/
+.idea/
