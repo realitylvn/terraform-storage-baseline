@@ -740,15 +740,73 @@ remote existed. Now genuinely green rather than green-because-unrun.
 
 ## Measured cost
 
-<!-- TODO after the real apply/destroy cycle (Checkpoint 6). Design estimate:
-     $0.00/month — an empty StorageV2 LRS account has no hourly meter, and
-     billing is per-GB-stored and per-transaction. Validated by apply/destroy,
-     not left standing. No new Budget: azure-cost-sentinel owns the one
-     subscription-wide Budget by standing portfolio decision. -->
+**Under one cent for the entire validation cycle.** Measured, not estimated.
+
+The account existed for roughly 12 minutes and recorded:
+
+| Metric | Value |
+|---|---|
+| Transactions | 37 |
+| UsedCapacity | 0 GB (never reported a non-zero sample) |
+
+Priced against eastus2 Standard Hot LRS retail rates, pulled from the Azure
+Retail Prices API on 2026-09-07:
+
+| Meter | Rate | This cycle |
+|---|---|---|
+| Hot LRS Data Stored | $0.0184 / GB / month | $0.00 — nothing was written |
+| Hot LRS Write Operations | $0.065 / 10K | 37 ops → **$0.00024** |
+| LRS List and Create Container Operations | $0.05 / 10K | included above |
+
+Total: **~$0.0002.** Pricing 37 transactions at the most expensive applicable
+meter is deliberately pessimistic; the true figure is lower.
+
+**Method, and its limit.** Billed cost data lags 8–24 hours, so this is derived
+from measured usage against published rates rather than read off an invoice. It
+is floor-accurate for what was consumed, not a reading of what was charged. It
+is also not an estimate of a design — the usage numbers came from Azure Monitor
+on the real account.
+
+`az consumption usage list` was tried first and failed on Azure CLI 2.55
+(`Subscription scope usage is not supported for current api version`) — the
+second place in this build where the pinned CLI version, not Azure, was the
+obstacle.
+
+**Steady state is $0.00/month**, because there is no steady state: the design
+is an apply/destroy validation cycle, and `az group exists` returns `false`.
+An empty StorageV2 LRS account has no hourly meter in any case — storage
+billing is per-GB-stored and per-transaction, so an account holding nothing
+bills nothing.
+
+No Budget was created. `azure-cost-sentinel` owns the single subscription-wide
+Budget by standing portfolio decision.
 
 ---
 
 ## AZ-900 / AZ-104 domain mapping
 
-<!-- TODO: consolidated at the end, scored against what the build actually
-     exercised. Per-checkpoint mappings are recorded above as they happen. -->
+Consolidated from the per-checkpoint mappings above, scored against what the
+build actually exercised rather than what the topic list suggests it might
+have.
+
+| Domain | Weight | What exercised it |
+|---|---|---|
+| **Configure and manage storage** | Heavy | Account kinds and tiers, LRS/ZRS/GZRS replication, blob versioning, blob and container soft delete, lifecycle management policy, storage firewall with default-Deny and an IP allowlist, infrastructure (double) encryption, and shared-key vs Entra ID data-plane authentication. The core of the project. |
+| **Manage Azure identities and governance** | Heavy | One RBAC role assignment, scoped to a single resource rather than the resource group, with `principal_type` set against replication lag. The control-plane vs data-plane distinction was exercised repeatedly and from both directions — a control-plane role granting nothing on data, and `listkeys` succeeding while the data plane refuses the key. Also CAF naming and tagging. |
+| **Implement and manage infrastructure as code** | Heavy | Terraform module composition, a deliberately tiered input surface, variable validation and resource preconditions, provider version pinning and lock files, `terraform test` with mocked providers, plan/apply/destroy lifecycle, state as a sensitive artifact. Contrasted throughout with the Bicep pattern used by every sibling project. |
+| **Monitor and maintain Azure resources** | Light | Azure Monitor metrics for transactions and capacity; Retail Prices API for cost derivation. No diagnostic settings — deliberately scoped out, and the reason Checkov's logging findings were skipped rather than fixed. |
+| **Describe Azure architecture and services** | Light | Resource group as a scope boundary; the storage account global namespace and its 24-character constraint driving a naming decision. |
+| **Not touched** | — | Compute, networking beyond a service-endpoint variable, identity provisioning, backup/recovery. This project is narrow on purpose. |
+
+**Honest assessment of what this proves.** It demonstrates storage security
+configuration and Terraform module design well, because both were built,
+tested, applied against a live subscription and independently verified. It does
+**not** demonstrate operating storage at scale, private networking, or
+monitoring — those are absent by design, and the README says so rather than
+implying coverage.
+
+The most transferable lesson is not a storage setting. It is that four separate
+layers of checking — `validate`, a mocked test suite, a real `plan`, and a
+third-party scanner — each caught something the others structurally could not,
+and the apply still failed on a fifth thing none of them could see. Layered
+verification is not redundancy.
