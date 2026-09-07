@@ -329,6 +329,90 @@ storage benchmarks maintained by people with no stake in this repository.
 
 ---
 
+## Checkpoint 4 — plan against the live subscription
+
+This is the layer the mocked tests structurally cannot cover: whether the real
+azurerm provider and the real Azure API accept what the module produces.
+`terraform plan` reads and creates nothing.
+
+```
+$ export ARM_SUBSCRIPTION_ID=$(az account show --query id -o tsv)
+$ terraform plan -var="subscription_id=<SUBSCRIPTION_ID>" \
+                 -var='allowed_ip_ranges=["203.0.113.10"]'
+
+  # azurerm_resource_group.this will be created
+  # azurerm_role_assignment.caller_blob_data[0] will be created
+  # random_string.suffix will be created
+  # module.storage.azurerm_storage_account.this will be created
+  # module.storage.azurerm_storage_container.this["artifacts"] will be created
+  # module.storage.azurerm_storage_container.this["logs"] will be created
+  # module.storage.azurerm_storage_management_policy.this[0] will be created
+
+Plan: 7 to add, 0 to change, 0 to destroy.
+```
+
+Exit code 0. Every control resolved as intended:
+
+```
++ account_kind                      = "StorageV2"
++ account_replication_type          = "LRS"
++ allow_nested_items_to_be_public   = false
++ https_traffic_only_enabled        = true
++ infrastructure_encryption_enabled = true
++ min_tls_version                   = "TLS1_2"
++ public_network_access_enabled     = true
++ shared_access_key_enabled         = false
++ default_action                    = "Deny"     # network_rules
+```
+
+and the role assignment is scoped and typed as designed:
+
+```
++ role_definition_name = "Storage Blob Data Contributor"
++ principal_type       = "User"
++ scope                = (known after apply)     # the storage account
+```
+
+The plan also confirms the `-1` sentinel behaviour that a test assertion had to
+be rewritten for: every unset day-count in the lifecycle policy resolves to
+`-1`, while the three configured values come through as `30`, `90` and `90`.
+Base-blob deletion is `-1` — the default rule does not delete live data, as
+intended.
+
+### A leak `terraform plan` introduces that Bicep did not
+
+The plan output contained a bare GUID. It was not the subscription or tenant
+ID, both of which were already being redacted at capture:
+
+```
++ principal_id = "<PRINCIPAL_ID>"
+```
+
+It is the signed-in user's own **object ID**, pulled in by
+`data.azurerm_client_config.current` and printed in full because the role
+assignment consumes it. This is exactly the identifier class the portfolio
+convention names, and it appears in ordinary plan output without any command
+that obviously asks for it. `az deployment what-if` on the equivalent Bicep
+would not surface it, because the Bicep projects pass a principal ID in rather
+than reading the caller's.
+
+Redacted at capture. The practical rule this adds: **any Terraform plan output
+pasted into a document, a PR or a screenshot needs a principal-ID pass, not
+just a subscription-ID pass** — and a plan file saved with `-out` embeds the
+same value in binary form, which is a further reason `*.tfplan` is gitignored.
+
+### AZ-900 / AZ-104 domains touched at this checkpoint
+
+- **Implement and manage infrastructure as code** — plan/apply lifecycle,
+  reading a plan as a review artifact rather than a formality.
+- **Manage Azure identities and governance** — RBAC scope resolution;
+  identifier hygiene in tooling output.
+
+**Next: Checkpoint 5 is a hard gate.** `terraform apply` creates real resources
+and does not run without explicit go-ahead.
+
+---
+
 <!-- Further checkpoints appended here as the build proceeds. -->
 
 ---
@@ -350,6 +434,8 @@ storage benchmarks maintained by people with no stake in this repository.
 | `terraform test` (bogus tenant, empty `AZURE_CONFIG_DIR`) | Disproved the assumption that plan-only tests need no credential. 22 skipped, provider failed at configure. |
 | `terraform test` (with `mock_provider`) | Same bogus credentials: 22 passed, exit 0. Proved CI needs no Azure credential. |
 | `npx @mermaid-js/mermaid-cli` | Parse-checked the architecture diagram and rendered both GitHub themes; fixed a label collision found by actually looking at the output. |
+| `terraform plan` (examples/complete, live subscription) | Checkpoint 4. 7 to add, 0 to change, 0 to destroy; every security control resolved as intended. Created nothing. |
+| `az ad signed-in-user show --query id` | Identified the bare GUID left in plan output as the caller object ID, then redacted it at capture. |
 
 ---
 
