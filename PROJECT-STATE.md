@@ -5,8 +5,7 @@ secure-by-default Azure storage account, plus an example root module that
 consumes it. Portfolio Tier 2, first non-Bicep IaC project. Design per
 `docs/internal/specs/2026-09-07-terraform-storage-baseline-design.md`.
 
-**Completed milestone:** Checkpoints 1-6 (2026-09-07) — scaffold, module, and
-the test/CI layer, plus a live-subscription plan. **Nothing deployed; no Azure
+**Completed milestone:** SHIPPED 2026-09-07 — Checkpoints 1-7 plus publication. **Nothing deployed; no Azure
 resource created or changed.** Validated against the provider schema, a mocked
 provider, and a real `terraform plan`.
 
@@ -60,10 +59,12 @@ inside the 24-character ceiling; the resource group keeps the full slug
 - Piping `terraform test` to another command masks its exit code. The first run
   reported exit 0 with three failures. CI does not pipe.
 
-**Next action:** publish. Remaining: create the GitHub remote, push, confirm CI
-goes green on a real runner (it has never executed), tag `v1.0.0`, set repo
-description + topics via `github-repo-publishing`, and fill the README
-"Sample output" section from the captured output in REVIEW.md Checkpoint 6.
+**Next action:** none — the project is complete and public at
+https://github.com/realitylvn/terraform-storage-baseline, tagged `v1.0.0`.
+
+The single remaining TODO is the `## Portfolio series` README footer, which is
+deliberately deferred until all three Tier 2 projects ship (workspace CLAUDE.md
+owns that decision). Do not fill it in isolation.
 
 Checkpoint 7 (linters) is DONE: tflint clean; Checkov 14 pass / 0 fail / 7
 skipped. Checkov caught two real bugs — a `dynamic "network_rules"` block hid
@@ -84,6 +85,13 @@ an apply/destroy cycle, not left standing. No new Budget —
 `azure-cost-sentinel` owns the one subscription-wide Budget. Real number
 recorded in REVIEW.md after Checkpoint 6.
 
+**Shipped verification (CI green on a real runner, run 34162363514):**
+`terraform fmt`/`validate` clean; 22 `terraform test` assertions pass on a Linux
+runner with NO Azure credential (proving the `mock_provider` design); tflint
+clean; Checkov 14 passed / 0 failed / 7 skipped-with-reason under
+`soft_fail: false`. The published module was consumed end-to-end from a clean
+root module at `?ref=v1.0.0` and validated.
+
 **Verification state:** `fmt`, `validate`, and 22 mocked `terraform test`
 assertions pass locally, exit code 0 confirmed without a pipe. `terraform plan`
 against the live subscription succeeds: 7 to add, 0 to change, 0 to destroy,
@@ -99,8 +107,9 @@ destroyed. 7 created, 7 destroyed, `az group exists` returns false. Nothing is
 deployed and nothing is billing.
 
 **Canonical checkout:**
-`c:\Users\LVN\Documents\Coding Workspace\Azure\terraform-storage-baseline`,
-branch `master` (no remote, not published).
+`c:SERSvndocumentscoding workspaceazure	erraform-storage-baseline`,
+branch `main`, remote `origin` -> realitylvn/terraform-storage-baseline (public).
+tagged `v1.0.0` at the ci-verified commit.
 
 **Relationship to the paused projects:** this project was picked precisely
 because `landing-zone-foundation`'s PROJECT-STATE parked its own resumption on
