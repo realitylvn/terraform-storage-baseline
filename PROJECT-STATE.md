@@ -5,7 +5,7 @@ secure-by-default Azure storage account, plus an example root module that
 consumes it. Portfolio Tier 2, first non-Bicep IaC project. Design per
 `docs/internal/specs/2026-09-07-terraform-storage-baseline-design.md`.
 
-**Completed milestone:** Checkpoints 1-3 (2026-09-07) — scaffold, module, and
+**Completed milestone:** Checkpoints 1-4 (2026-09-07) — scaffold, module, and
 the test/CI layer. **Nothing deployed; no Azure resource created or changed.**
 All work so far is local Terraform, validated against the provider schema and a
 mocked provider.
@@ -57,8 +57,9 @@ inside the 24-character ceiling; the resource group keeps the full slug
 - Piping `terraform test` to another command masks its exit code. The first run
   reported exit 0 with three failures. CI does not pipe.
 
-**Next action:** Checkpoint 4 — `terraform plan` on `examples/complete` against
-the live subscription. Read-only; creates nothing.
+**Next action:** Checkpoint 5 — the hard gate. `terraform apply` on
+`examples/complete` creates 7 real resources and does NOT run without
+Jonathan's explicit go-ahead.
 
 **Blockers:** none. Checkpoint 5 is a **hard gate**: `terraform apply` does not
 run without Jonathan's explicit go-ahead.
@@ -75,10 +76,11 @@ an apply/destroy cycle, not left standing. No new Budget —
 recorded in REVIEW.md after Checkpoint 6.
 
 **Verification state:** `fmt`, `validate`, and 22 mocked `terraform test`
-assertions pass locally, exit code 0 confirmed without a pipe. `tflint` and
-Checkov are configured but have not yet been run — neither is installed
-locally, so their first real run is in GitHub Actions. No `terraform plan`
-against the live subscription yet, and no apply.
+assertions pass locally, exit code 0 confirmed without a pipe. `terraform plan`
+against the live subscription succeeds: 7 to add, 0 to change, 0 to destroy,
+exit 0, every security control resolving as intended. `tflint` and Checkov are
+configured but have NOT been run — neither is installed locally, so their first
+real run is in GitHub Actions. No apply.
 
 **Canonical checkout:**
 `c:\Users\LVN\Documents\Coding Workspace\Azure\terraform-storage-baseline`,
