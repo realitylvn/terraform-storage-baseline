@@ -616,6 +616,102 @@ portfolio decision.
 
 ---
 
+## Checkpoint 7 — the independent scanners earn their place
+
+`tflint` and Checkov had been configured since Checkpoint 3 but had **never
+been run** — neither was installed locally, and the repo has no GitHub remote
+yet, so CI had never executed. That gap was recorded honestly in PROJECT-STATE
+rather than glossed, and closing it changed the module.
+
+Both installed locally, Terraform-style: direct download, checksum-verified
+against the published `checksums.txt` for tflint (v0.64.0), and the official
+Docker image for Checkov (3.3.16) so the local run matches what CI does.
+
+### tflint: clean
+
+```
+$ tflint --recursive --format compact --minimum-failure-severity=warning
+$ echo $?
+0
+```
+
+No findings, with both the bundled `terraform` ruleset and `azurerm` 0.28.0.
+
+### Checkov: 9 failures, and they were not all noise
+
+```
+Passed checks: 12, Failed checks: 9, Skipped checks: 0
+```
+
+This is exactly why an independent checker was in the design. Sorting the nine
+honestly mattered more than making them go away:
+
+**Two were real bugs in this module, and both had the same root cause.**
+`CKV_AZURE_35` (default network rule is deny) and `CKV_AZURE_36` (trusted
+Microsoft services bypass) reported FAILING on an account that Checkpoint 6 had
+verified live as `netDefault: "Deny"` and `bypass: "AzureServices"`. The
+control was applied; Checkov could not see it, because it lived inside a
+`dynamic "network_rules"` block and static analysis cannot evaluate one.
+
+That dynamic block existed for a purely cosmetic reason — avoiding a no-op plan
+diff when nothing was restricted — and it had already cost something once
+before, at Checkpoint 3, when a test could not assert on the attribute because
+an absent block leaves it computed and unknown at plan time. Twice is a
+pattern. **Blinding a security scanner to the network control is a bad trade
+for a tidier diff**, so the block is now static and always emitted, which is
+also more honest: the account always has a network rule set, whatever it is.
+Passed checks went 12 → 14, and the test that asserted the block was *omitted*
+was rewritten to assert it is always present and reflects the override.
+
+**Five were deliberate design decisions**, already argued in the spec:
+`CKV_AZURE_59` (the public endpoint stays reachable — the control is a
+default-Deny firewall, not endpoint removal), `CKV_AZURE_206` (LRS default on
+cost grounds), `CKV2_AZURE_1` (customer-managed keys need a Key Vault this
+module has no business requiring), `CKV2_AZURE_33` (private endpoint, ~$7.30/mo
+plus a VNet), and `CKV_AZURE_33` (queue logging; no queue service exists here).
+
+Worth being precise about one of these, because the first reading was wrong:
+`CKV_AZURE_59` looked like another dynamic-block false positive and is not. It
+inspects `public_network_access_enabled`, which this module sets to `true`
+deliberately. It is a genuine disagreement with Checkov about what "disallow
+public access" should mean, not a parser limitation — and stating it as a false
+positive would have been convenient and untrue.
+
+**Two were a real gap, scoped out explicitly.** `CKV2_AZURE_21` wants blob read
+logging, which needs a diagnostic setting pointed at a Log Analytics workspace
+— a dependency and a recurring cost a standalone module should not impose. A
+consumer wires `azurerm_monitor_diagnostic_setting` against the module's `id`
+output.
+
+The seven non-bugs are declared as inline `checkov:skip=<ID>:<reason>` comments
+rather than suppressed in configuration, so they surface in the report as
+**skipped with a stated reason** instead of disappearing:
+
+```
+Passed checks: 14, Failed checks: 0, Skipped checks: 7
+exit 0
+```
+
+A green Checkov run that hides seven disagreements would be worse than a red
+one. The point of adding a third-party scanner was to be argued with; the value
+came from the two findings that were right, and those only surfaced because the
+scanner was actually run instead of merely configured.
+
+### CI would have failed
+
+The workflow sets `soft_fail: false`, so before this pass the repository was
+shipping a CI configuration that fails on its own code — invisible while no
+remote existed. Now genuinely green rather than green-because-unrun.
+
+### AZ-900 / AZ-104 domains touched at this checkpoint
+
+- **General security practice** — independent benchmark review; distinguishing
+  a scanner's false positive from a real disagreement from a real gap.
+- **Implement and manage infrastructure as code** — static-analysis limits
+  around dynamic blocks; auditable suppression over silent suppression.
+
+---
+
 <!-- Further checkpoints appended here as the build proceeds. -->
 
 ---

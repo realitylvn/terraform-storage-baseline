@@ -12,21 +12,22 @@
 # ---------------------------------------------------------------------------
 
 locals {
-  # A network_rules block with default_action = "Allow" and no allowlists is
-  # equivalent to no block at all, and emits a confusing plan diff. Only emit
-  # the block when it actually restricts something.
-  emit_network_rules = (
-    var.network_default_action == "Deny" ||
-    length(var.allowed_ip_ranges) > 0 ||
-    length(var.allowed_subnet_ids) > 0
-  )
-
   # Azure rejects a management policy with zero rules; omit the resource
   # entirely when the consumer passes an empty list.
   emit_lifecycle_policy = length(var.lifecycle_rules) > 0
 }
 
 resource "azurerm_storage_account" "this" {
+  # Checkov findings this module knowingly disagrees with. Each is a documented
+  # decision from the design spec, not a silenced scanner. Skips are declared
+  # inline so they appear in Checkov output as skipped-with-reason rather than
+  # vanishing from the report.
+  #
+  # checkov:skip=CKV_AZURE_59:Public endpoint stays reachable by design; the control is a default-Deny firewall plus an explicit allowlist (see allowed_ip_ranges). Disabling the endpoint outright is a different product; documented in README as "firewall-restricted, not private".
+  # checkov:skip=CKV_AZURE_206:LRS is the module default because this baseline optimises for cost; account_replication_type is a free variable and raising it to ZRS/GZRS is a one-line override, asserted by a test.
+  # checkov:skip=CKV2_AZURE_1:Customer-managed keys need a Key Vault this standalone module has no business requiring. The module exposes a system-assigned identity precisely so CMK can be wired downstream.
+  # checkov:skip=CKV2_AZURE_33:A private endpoint costs roughly $7.30/mo plus a VNet, subnet and Private DNS zone, breaking both the near-zero-cost and standalone constraints. Out of scope, stated in README.
+  # checkov:skip=CKV_AZURE_33:Queue service logging is out of scope; this module provisions no queue service. Diagnostic settings need a Log Analytics workspace, which is a dependency and a recurring cost this module does not own.
   name                = var.name
   resource_group_name = var.resource_group_name
   location            = var.location
@@ -68,14 +69,25 @@ resource "azurerm_storage_account" "this" {
     }
   }
 
-  dynamic "network_rules" {
-    for_each = local.emit_network_rules ? [1] : []
-    content {
-      default_action             = var.network_default_action
-      bypass                     = var.network_bypass
-      ip_rules                   = var.allowed_ip_ranges
-      virtual_network_subnet_ids = var.allowed_subnet_ids
-    }
+  # Deliberately a static block rather than a `dynamic` one.
+  #
+  # It was dynamic at first, emitted only when it actually restricted
+  # something, to avoid a no-op plan diff for default_action = "Allow". That
+  # cosmetic gain cost more than it was worth twice over: static analysers
+  # cannot evaluate a dynamic block, so Checkov reported CKV_AZURE_35 (default
+  # network rule is deny) and CKV_AZURE_36 (trusted Microsoft services bypass)
+  # as FAILING on an account that demonstrably had both applied; and the
+  # attribute is computed when the block is absent, so tests could not assert
+  # on it at plan time.
+  #
+  # Blinding a security scanner to the network control is a bad trade for a
+  # tidier diff. Always emitting the block is also simply more honest: the
+  # account always has a network rule set, whatever it is.
+  network_rules {
+    default_action             = var.network_default_action
+    bypass                     = var.network_bypass
+    ip_rules                   = var.allowed_ip_ranges
+    virtual_network_subnet_ids = var.allowed_subnet_ids
   }
 
   lifecycle {
@@ -101,6 +113,7 @@ resource "azurerm_storage_account" "this" {
 # ---------------------------------------------------------------------------
 
 resource "azurerm_storage_container" "this" {
+  # checkov:skip=CKV2_AZURE_21:Blob read logging needs a diagnostic setting pointed at a Log Analytics workspace. That is a dependency and a recurring cost this standalone module does not own; a consumer adds azurerm_monitor_diagnostic_setting against the module's `id` output.
   for_each = var.containers
 
   name               = each.key

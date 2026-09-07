@@ -37,7 +37,7 @@ output "security_posture" {
     shared_access_key_enabled         = azurerm_storage_account.this.shared_access_key_enabled
     public_network_access_enabled     = azurerm_storage_account.this.public_network_access_enabled
     infrastructure_encryption_enabled = azurerm_storage_account.this.infrastructure_encryption_enabled
-    network_default_action            = local.emit_network_rules ? var.network_default_action : "Allow"
+    network_default_action            = azurerm_storage_account.this.network_rules[0].default_action
     blob_versioning_enabled           = var.blob_versioning_enabled
     lifecycle_policy_applied          = local.emit_lifecycle_policy
   }

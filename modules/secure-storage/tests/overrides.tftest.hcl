@@ -87,20 +87,30 @@ run "ip_allowlist_is_applied" {
   }
 }
 
-run "network_rules_omitted_when_nothing_is_restricted" {
+# The network_rules block is always emitted (see the comment on it in main.tf:
+# a dynamic block hid the control from static analysers and made it unknown at
+# plan time). A consumer can still open the account up, and that must be
+# visible in the plan rather than implied by an absent block.
+run "network_rules_always_emitted_and_reflect_the_override" {
   command = plan
 
   variables {
     network_default_action = "Allow"
   }
 
-  # Asserted through the module output rather than the resource attribute:
-  # with no network_rules block in the config, the provider marks the whole
-  # attribute as computed, so it is unknown at plan time. The output is derived
-  # from the same local that decides whether to emit the block, and is known.
+  assert {
+    condition     = length(azurerm_storage_account.this.network_rules) == 1
+    error_message = "The network_rules block must always be emitted so the account's network posture is explicit in the plan and visible to static analysis."
+  }
+
+  assert {
+    condition     = azurerm_storage_account.this.network_rules[0].default_action == "Allow"
+    error_message = "network_default_action override was not applied."
+  }
+
   assert {
     condition     = output.security_posture.network_default_action == "Allow"
-    error_message = "A network_rules block that restricts nothing should not be emitted; it produces a confusing no-op plan diff."
+    error_message = "security_posture must report the network action actually configured, not the module default."
   }
 }
 

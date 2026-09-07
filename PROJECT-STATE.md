@@ -60,11 +60,15 @@ inside the 24-character ceiling; the resource group keeps the full slug
 - Piping `terraform test` to another command masks its exit code. The first run
   reported exit 0 with three failures. CI does not pipe.
 
-**Next action:** Checkpoint 7 — publish. Remaining: run tflint and Checkov
-(never yet run; not installed locally, first run is in GitHub Actions), create
-the GitHub remote, tag v1.0.0, set repo description + topics via
-`github-repo-publishing`, and fill the README Sample output section from the
-captured apply/verify output in REVIEW.md Checkpoint 6.
+**Next action:** publish. Remaining: create the GitHub remote, push, confirm CI
+goes green on a real runner (it has never executed), tag `v1.0.0`, set repo
+description + topics via `github-repo-publishing`, and fill the README
+"Sample output" section from the captured output in REVIEW.md Checkpoint 6.
+
+Checkpoint 7 (linters) is DONE: tflint clean; Checkov 14 pass / 0 fail / 7
+skipped. Checkov caught two real bugs — a `dynamic "network_rules"` block hid
+the network control from static analysis, so it is now static and always
+emitted.
 
 **Blockers:** none. The apply/destroy validation cycle is DONE and verified;
 nothing is deployed and nothing is billing.
@@ -83,9 +87,10 @@ recorded in REVIEW.md after Checkpoint 6.
 **Verification state:** `fmt`, `validate`, and 22 mocked `terraform test`
 assertions pass locally, exit code 0 confirmed without a pipe. `terraform plan`
 against the live subscription succeeds: 7 to add, 0 to change, 0 to destroy,
-exit 0, every security control resolving as intended. `tflint` and Checkov are
-configured but have NOT been run — neither is installed locally, so their first
-real run is in GitHub Actions.
+exit 0, every security control resolving as intended. `tflint` v0.64.0 (with azurerm ruleset 0.28.0) passes clean, exit 0. Checkov
+3.3.16 via its official Docker image: 14 passed, 0 failed, 7 skipped, exit 0 —
+the 7 skips are inline `checkov:skip` comments carrying a stated reason, not
+configuration-level suppression.
 
 The apply/destroy cycle IS done (Checkpoints 5-6): applied against the live
 subscription, every control verified with `az` independently of Terraform state
