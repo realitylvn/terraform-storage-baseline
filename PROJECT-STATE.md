@@ -6,9 +6,9 @@ consumes it. Portfolio Tier 2, first non-Bicep IaC project. Design per
 `docs/internal/specs/2026-09-07-terraform-storage-baseline-design.md`.
 
 **Completed milestone:** Checkpoints 1-4 (2026-09-07) — scaffold, module, and
-the test/CI layer. **Nothing deployed; no Azure resource created or changed.**
-All work so far is local Terraform, validated against the provider schema and a
-mocked provider.
+the test/CI layer, plus a live-subscription plan. **Nothing deployed; no Azure
+resource created or changed.** Validated against the provider schema, a mocked
+provider, and a real `terraform plan`.
 
 1. Pre-flight (`cloud-preflight-review`) done. `azure-naming-conventions.md`
    written (was missing), including a Terraform-specific identifier-hazard
@@ -28,7 +28,10 @@ mocked provider.
    `.tflint.hcl`. No apply job, no deploy credential.
 8. `docs/architecture.md` written and verified in both GitHub themes with
    `verifying-mermaid-diagrams`; a label collision was found and fixed.
-9. REVIEW.md Checkpoints 1-3 written with the command log.
+9. REVIEW.md Checkpoints 1-4 written with the command log; README and
+   docs/architecture.md filled.
+10. Checkpoint 4 — `terraform plan` against the live subscription: 7 to add,
+    0 to change, 0 to destroy, exit 0. Read-only; created nothing.
 
 **Settled design decisions** (confirmed by Jonathan 2026-09-07, full reasoning
 in the spec and REVIEW.md):
