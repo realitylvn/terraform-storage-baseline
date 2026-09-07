@@ -149,6 +149,38 @@ test can assert on the baseline rather than trust this document.
 Terraform `>= 1.9.0`, `hashicorp/azurerm >= 4.0.0, < 5.0.0`. The module
 declares no provider block; configure `azurerm` in your root module.
 
+### Your provider block must set `storage_use_azuread = true`
+
+This is a hard requirement, not a recommendation, whenever
+`shared_access_key_enabled` is left at its `false` default:
+
+```hcl
+provider "azurerm" {
+  features {}
+  storage_use_azuread = true
+}
+```
+
+Without it, `terraform apply` fails partway through creating the account:
+
+```
+Error: waiting for the Data Plane for Storage Account (...) to become
+available: waiting for the Blob Service to become available: polling failed:
+unexpected status 403 (403 Key based authentication is not permitted on this
+storage account.) with KeyBasedAuthenticationNotPermitted
+```
+
+The error is more alarming than the situation. After creating a storage
+account the provider polls the Blob Service for data-plane readiness, and that
+poll uses an account key by default — on an account that has just disabled key
+authentication, it is refused. The account itself is created correctly with
+every control applied and is recorded in state; only the readiness check fails.
+Setting `storage_use_azuread = true` switches the provider's data-plane calls
+to Entra ID and the apply completes.
+
+The caller also needs data-plane permission for that poll. `Owner` covers it;
+a principal holding only `Contributor` may not.
+
 ## Tests
 
 ```

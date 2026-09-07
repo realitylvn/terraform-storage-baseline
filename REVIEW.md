@@ -413,6 +413,209 @@ and does not run without explicit go-ahead.
 
 ---
 
+## Checkpoint 5 — the apply failed, and the reason was the module's own best idea
+
+Go-ahead given 2026-09-07. Prerequisite confirmed first: the account holds both
+`Owner` and `User Access Administrator`, so the role assignment would not be
+blocked.
+
+The first `terraform apply` failed:
+
+```
+azurerm_resource_group.this: Creation complete after 22s
+module.storage.azurerm_storage_account.this: Still creating... [00m30s elapsed]
+
+Error: waiting for the Data Plane for Storage Account (...
+Storage Account Name: "stbaselinedev7r96k0") to become available: waiting for
+the Blob Service to become available: polling failed: executing request:
+unexpected status 403 (403 Key based authentication is not permitted on this
+storage account.) with KeyBasedAuthenticationNotPermitted
+```
+
+This is the failure the whole design earned, and no earlier check could have
+caught it. `terraform validate` passes. The mocked test suite passes, because
+mocks never call Azure. `terraform plan` passes, because the fault is not in
+the plan — every value was correct. It only appears at the moment the provider
+talks to a real account that has just disabled key authentication.
+
+**What actually happened:** after creating a storage account, the azurerm
+provider polls the Blob Service to confirm the data plane is up. That poll
+authenticates with an account key by default. The module's headline default —
+`shared_access_key_enabled = false` — makes Azure refuse exactly that.
+
+The first thing to establish was blast radius, before touching anything:
+
+```
+$ terraform state list
+azurerm_resource_group.this
+random_string.suffix
+module.storage.azurerm_storage_account.this
+
+$ az storage account show -n stbaselinedev7r96k0 -g rg-storage-baseline-dev
+{ "provisioning": "Succeeded", "sharedKey": false, "minTls": "TLS1_2",
+  "publicBlob": false, "netDefault": "Deny" }
+```
+
+So the account was created correctly, with every control applied, and Terraform
+had it in state. Only the readiness *check* failed. The error reads like the
+account is broken; it is not. That gap between how bad the message looks and
+what actually happened is the useful part.
+
+**The fix** is a provider setting, which means it is the *consumer's*
+responsibility and cannot be fixed inside the module:
+
+```hcl
+provider "azurerm" {
+  features {}
+  storage_use_azuread = true   # required, not stylistic
+}
+```
+
+It switches the provider's data-plane calls from shared key to Entra ID. Since
+a module cannot configure the provider for its caller, the only correct
+response is documentation — so this is now a named requirement in the module
+README with the verbatim error text, so the next person hits a search result
+instead of a wall. The caller also needs data-plane permission for that poll;
+`Owner` covers it, `Contributor` alone may not.
+
+Re-applied: **5 added, 0 changed, 1 destroyed** — the storage account was
+tainted by the failed create and replaced.
+
+### AZ-900 / AZ-104 domains touched at this checkpoint
+
+- **Configure and manage storage** — shared key vs Entra ID data-plane
+  authentication.
+- **Implement and manage infrastructure as code** — provider configuration as
+  a consumer contract; diagnosing a partial apply and reading state before
+  reacting.
+
+---
+
+## Checkpoint 6 — verifying the controls, and what "keys disabled" really means
+
+Every control was confirmed with `az` against the live account, deliberately
+**not** by reading Terraform state. State reports what Terraform believes it
+sent; only Azure knows what is true.
+
+### The controls are set
+
+```
+{ "httpsOnly": true, "minTls": "TLS1_2", "publicBlob": false,
+  "sharedKey": false, "netDefault": "Deny", "bypass": "AzureServices",
+  "infraEncryption": true, "kind": "StorageV2", "sku": "Standard_LRS",
+  "identity": "SystemAssigned" }
+
+{ "versioning": true, "blobSoftDelete": 7, "containerSoftDelete": 7 }
+
+{ "name": "baseline-tier-and-prune", "enabled": true,
+  "baseBlobCool": 30, "baseBlobArchive": 90, "baseBlobDelete": null,
+  "versionDelete": 90, "snapshotDelete": 90 }
+```
+
+`baseBlobDelete: null` is the one to look at: the live policy does not delete
+live data, which is what the default was designed for and what a test asserts.
+
+### The controls actually work
+
+Being set and being enforced are different claims, so each was tested:
+
+| Test | Result |
+|---|---|
+| Entra ID auth from the allowed IP | **succeeds** — lists `artifacts`, `logs` |
+| Anonymous HTTPS container listing | **409** `PublicAccessNotPermitted` |
+| Plaintext HTTP | **400** `AccountRequiresHttps` |
+| Shared-key auth against the data plane | **`KeyBasedAuthenticationNotPermitted`** |
+
+### An az CLI bug that made a verification command lie
+
+The first verification run returned `"httpsOnly": null` — for one of the two
+controls this baseline treats as non-negotiable. The setting was fine; the
+tool was wrong. Azure CLI 2.55 pins api-version `2023-01-01` and its response
+model does not surface the field. Going straight to ARM settled it:
+
+```
+$ az rest --method get --url ".../stbaselinedev7r96k0?api-version=2023-05-01" \
+    --query "properties.supportsHttpsTrafficOnly"
+true
+```
+
+The example's `verify_commands` output had been emitting the `az storage
+account show` form, so **the repository was shipping a verification command
+that silently reports null on the thing being verified.** That is worse than
+shipping no command, and it was fixed to use `az rest` with a pinned
+api-version, then re-run to confirm all six fields return real values.
+
+A verification step that can fail open is not a verification step. This one was
+only caught because the output looked wrong rather than absent.
+
+### "Keys disabled" does not mean the keys are gone
+
+The sharpest finding of the build, and one it would be easy to state wrongly in
+a README. Retrieving the keys **still works**:
+
+```
+$ az storage account keys list -n stbaselinedev7r96k0 -g rg-storage-baseline-dev
+key1  FULL  <STORAGE_KEY>
+key2  FULL  <STORAGE_KEY>
+```
+
+`allowSharedKeyAccess = false` does not delete, rotate or hide the account
+keys. They still exist and are still retrievable through the **control plane**
+by any principal holding `Microsoft.Storage/storageAccounts/listkeys/action` —
+`Owner`, `Contributor`, `Storage Account Contributor`. What the setting changes
+is that the **data plane** refuses them:
+
+```
+$ az storage container list --account-name stbaselinedev7r96k0 --account-key <STORAGE_KEY>
+ERROR: Key based authentication is not permitted on this storage account.
+ErrorCode:KeyBasedAuthenticationNotPermitted
+```
+
+The key is retrievable and useless. That is the same control-plane/data-plane
+split as the rest of this project, seen from the other direction — and it means
+the honest claim is "shared key authentication is refused", not "the account
+has no keys". A reader who took the looser phrasing at face value would
+wrongly conclude a leaked key from a `listkeys` call was harmless.
+
+### Measured cost
+
+Metrics over the account's lifetime: **37 transactions, 0 GB stored**
+(`UsedCapacity` never reported a non-zero sample).
+
+eastus2 Standard Hot LRS retail rates, from the Azure Retail Prices API on
+2026-09-07:
+
+| Meter | Rate |
+|---|---|
+| Hot LRS Data Stored | $0.0184 / GB / month |
+| Hot LRS Write Operations | $0.065 / 10K |
+| LRS List and Create Container Operations | $0.05 / 10K |
+
+37 transactions priced at the most expensive applicable meter is
+**$0.00024** — and storage was $0.00, because nothing was written. Total for
+the validation cycle: **well under one cent.**
+
+Billed cost data lags 8-24 hours, so this is computed from measured usage
+against published rates rather than read from an invoice. It is a floor-accurate
+number, not an estimate of a design.
+
+The account existed for roughly 12 minutes and was then destroyed. There is no
+standing resource and no recurring cost. No Budget was added —
+`azure-cost-sentinel` owns the single subscription-wide Budget by standing
+portfolio decision.
+
+### AZ-900 / AZ-104 domains touched at this checkpoint
+
+- **Configure and manage storage** — verifying storage security posture from
+  the control plane and the data plane independently.
+- **Monitor and maintain Azure resources** — Azure Monitor metrics; Retail
+  Prices API for cost derivation.
+- **General security practice** — testing that a control blocks rather than
+  trusting that it is set; distinguishing "credential refused" from
+  "credential absent".
+
+---
+
 <!-- Further checkpoints appended here as the build proceeds. -->
 
 ---

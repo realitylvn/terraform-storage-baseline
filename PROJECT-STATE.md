@@ -5,7 +5,7 @@ secure-by-default Azure storage account, plus an example root module that
 consumes it. Portfolio Tier 2, first non-Bicep IaC project. Design per
 `docs/internal/specs/2026-09-07-terraform-storage-baseline-design.md`.
 
-**Completed milestone:** Checkpoints 1-4 (2026-09-07) — scaffold, module, and
+**Completed milestone:** Checkpoints 1-6 (2026-09-07) — scaffold, module, and
 the test/CI layer, plus a live-subscription plan. **Nothing deployed; no Azure
 resource created or changed.** Validated against the provider schema, a mocked
 provider, and a real `terraform plan`.
@@ -60,12 +60,14 @@ inside the 24-character ceiling; the resource group keeps the full slug
 - Piping `terraform test` to another command masks its exit code. The first run
   reported exit 0 with three failures. CI does not pipe.
 
-**Next action:** Checkpoint 5 — the hard gate. `terraform apply` on
-`examples/complete` creates 7 real resources and does NOT run without
-Jonathan's explicit go-ahead.
+**Next action:** Checkpoint 7 — publish. Remaining: run tflint and Checkov
+(never yet run; not installed locally, first run is in GitHub Actions), create
+the GitHub remote, tag v1.0.0, set repo description + topics via
+`github-repo-publishing`, and fill the README Sample output section from the
+captured apply/verify output in REVIEW.md Checkpoint 6.
 
-**Blockers:** none. Checkpoint 5 is a **hard gate**: `terraform apply` does not
-run without Jonathan's explicit go-ahead.
+**Blockers:** none. The apply/destroy validation cycle is DONE and verified;
+nothing is deployed and nothing is billing.
 
 **Manual prerequisite for apply (Checkpoint 6):** creating the role assignment
 needs `Owner` or `User Access Administrator` at the scope. If the account only
