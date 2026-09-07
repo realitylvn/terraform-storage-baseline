@@ -85,7 +85,13 @@ assertions pass locally, exit code 0 confirmed without a pipe. `terraform plan`
 against the live subscription succeeds: 7 to add, 0 to change, 0 to destroy,
 exit 0, every security control resolving as intended. `tflint` and Checkov are
 configured but have NOT been run — neither is installed locally, so their first
-real run is in GitHub Actions. No apply.
+real run is in GitHub Actions.
+
+The apply/destroy cycle IS done (Checkpoints 5-6): applied against the live
+subscription, every control verified with `az` independently of Terraform state
+and tested for enforcement rather than configuration, cost measured, then
+destroyed. 7 created, 7 destroyed, `az group exists` returns false. Nothing is
+deployed and nothing is billing.
 
 **Canonical checkout:**
 `c:\Users\LVN\Documents\Coding Workspace\Azure\terraform-storage-baseline`,
